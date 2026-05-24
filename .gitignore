@@ -1,0 +1,15 @@
+# Gradle / Android
+.gradle/
+build/
+*/build/
+
+# IDE
+.idea/
+*.iml
+
+# Local SDK path
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db

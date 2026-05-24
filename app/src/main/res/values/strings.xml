@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">XRoboToolkit Android Service</string>
+    <string name="start_service">Start Service</string>
+    <string name="stop_service">Stop Service</string>
+    <string name="service_running_fmt">Service running: %1$s</string>
+    <string name="android_ip_fmt">Android IP: %1$s</string>
+    <string name="pico_ip_fmt">PICO IP: %1$s</string>
+    <string name="sn_fmt">SN: %1$s</string>
+    <string name="last_heartbeat_fmt">Last heartbeat: %1$s</string>
+    <string name="packet_count_fmt">Packet count: %1$d</string>
+    <string name="status_fmt">Status: %1$s</string>
+    <string name="session_path_fmt">Session path: %1$s</string>
+    <string name="manual_pico_title">Manual PICO target</string>
+    <string name="manual_pico_hint">Manual PICO IP</string>
+    <string name="apply_manual_pico_ip">Apply IP</string>
+    <string name="bind_mode_fmt">Bind mode: %1$s</string>
+    <string name="use_any_ipv4">Use ANY_IPV4</string>
+    <string name="use_selected_ip">Use SELECTED_IP</string>
+    <string name="run_self_test">Run TCP Self-Test</string>
+    <string name="discovery_now">Broadcast Now</string>
+    <string name="send_udp_probe">Send UDP Probe</string>
+    <string name="send_udp_priming">Send UDP Priming</string>
+    <string name="diag_title">Diagnostics</string>
+    <string name="interfaces_fmt">IPv4 interfaces:\n%1$s</string>
+    <string name="service_ip_fmt">Selected service IP: %1$s</string>
+    <string name="tcp_bind_requested_fmt">TCP bind requested: %1$s</string>
+    <string name="udp_broadcast_fmt">UDP broadcast addr: %1$s</string>
+    <string name="server_socket_local_fmt">ServerSocket local addr: %1$s</string>
+    <string name="tcp_started_fmt">TCP 63901 started: %1$s</string>
+    <string name="accept_count_fmt">Accept count: %1$d</string>
+    <string name="last_accept_error_fmt">Last accept error: %1$s</string>
+    <string name="last_read_error_fmt">Last read error: %1$s</string>
+    <string name="udp_broadcast_count_fmt">UDP broadcast count: %1$d</string>
+    <string name="loopback_self_test_fmt">Loopback self-test: %1$s</string>
+    <string name="wlan_self_test_fmt">WLAN-IP self-test: %1$s</string>
+    <string name="self_test_accept_fmt">Self-test accept observed: %1$s</string>
+    <string name="recent_events_fmt">Recent network events:\n%1$s</string>
+    <string name="notification_title">XRoboToolkit Bridge Running</string>
+    <string name="notification_text">UDP/TCP bridge active for PICO connection</string>
+</resources>
