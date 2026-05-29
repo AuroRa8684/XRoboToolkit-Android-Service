@@ -1,10 +1,15 @@
 package com.xrobotoolkit.androidservice
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -27,7 +32,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var packetCountText: TextView
     private lateinit var statusText: TextView
     private lateinit var sessionPathText: TextView
-    private lateinit var bindModeText: TextView
+    private lateinit var batteryOptimizationText: TextView
     private lateinit var interfacesText: TextView
     private lateinit var serviceIpText: TextView
     private lateinit var tcpBindRequestedText: TextView
@@ -35,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var serverSocketLocalText: TextView
     private lateinit var tcpStartedText: TextView
     private lateinit var acceptCountText: TextView
+    private lateinit var rejectedCountText: TextView
     private lateinit var lastAcceptErrorText: TextView
     private lateinit var lastReadErrorText: TextView
     private lateinit var udpBroadcastCountText: TextView
@@ -56,7 +62,7 @@ class MainActivity : ComponentActivity() {
         packetCountText = findViewById(R.id.packetCountText)
         statusText = findViewById(R.id.statusText)
         sessionPathText = findViewById(R.id.sessionPathText)
-        bindModeText = findViewById(R.id.bindModeText)
+        batteryOptimizationText = findViewById(R.id.batteryOptimizationText)
         interfacesText = findViewById(R.id.interfacesText)
         serviceIpText = findViewById(R.id.serviceIpText)
         tcpBindRequestedText = findViewById(R.id.tcpBindRequestedText)
@@ -64,6 +70,7 @@ class MainActivity : ComponentActivity() {
         serverSocketLocalText = findViewById(R.id.serverSocketLocalText)
         tcpStartedText = findViewById(R.id.tcpStartedText)
         acceptCountText = findViewById(R.id.acceptCountText)
+        rejectedCountText = findViewById(R.id.rejectedCountText)
         lastAcceptErrorText = findViewById(R.id.lastAcceptErrorText)
         lastReadErrorText = findViewById(R.id.lastReadErrorText)
         udpBroadcastCountText = findViewById(R.id.udpBroadcastCountText)
@@ -72,12 +79,16 @@ class MainActivity : ComponentActivity() {
         selfTestAcceptText = findViewById(R.id.selfTestAcceptText)
         recentEventsText = findViewById(R.id.recentEventsText)
         manualPicoIpInput = findViewById(R.id.manualPicoIpInput)
+        manualPicoIpInput.setOnFocusChangeListener { _, hasFocus ->
+            manualPicoIpInput.isCursorVisible = hasFocus
+        }
+        manualPicoIpInput.isCursorVisible = false
+        restoreManualPicoIpFromPrefs()
 
         findViewById<Button>(R.id.startButton).setOnClickListener { startBridgeService() }
         findViewById<Button>(R.id.stopButton).setOnClickListener { stopBridgeService() }
-        findViewById<Button>(R.id.useAnyIpv4Button).setOnClickListener { setBindMode("ANY_IPV4") }
-        findViewById<Button>(R.id.useSelectedIpButton).setOnClickListener { setBindMode("SELECTED_IP") }
         findViewById<Button>(R.id.applyManualPicoIpButton).setOnClickListener { applyManualPicoIp() }
+        findViewById<Button>(R.id.batteryOptimizationButton).setOnClickListener { requestIgnoreBatteryOptimization() }
         findViewById<Button>(R.id.runSelfTestButton).setOnClickListener { sendAction(XrtBridgeForegroundService.ACTION_RUN_SELF_TEST) }
         findViewById<Button>(R.id.discoveryNowButton).setOnClickListener { sendAction(XrtBridgeForegroundService.ACTION_DISCOVERY_NOW) }
         findViewById<Button>(R.id.sendUdpProbeButton).setOnClickListener { sendAction(XrtBridgeForegroundService.ACTION_SEND_UDP_PROBE) }
@@ -101,21 +112,19 @@ class MainActivity : ComponentActivity() {
         startService(intent)
     }
 
-    private fun setBindMode(mode: String) {
-        val intent = Intent(this, XrtBridgeForegroundService::class.java).apply {
-            action = XrtBridgeForegroundService.ACTION_SET_BIND_MODE
-            putExtra(XrtBridgeForegroundService.EXTRA_BIND_MODE, mode)
-        }
-        startService(intent)
-    }
-
     private fun applyManualPicoIp() {
         val ipText = manualPicoIpInput.text?.toString()?.trim().orEmpty()
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_MANUAL_PICO_IP, ipText)
+            .apply()
+        BridgeRepository.update { it.copy(manualPicoIp = ipText) }
         val intent = Intent(this, XrtBridgeForegroundService::class.java).apply {
             action = XrtBridgeForegroundService.ACTION_SET_MANUAL_PICO_IP
             putExtra(XrtBridgeForegroundService.EXTRA_MANUAL_PICO_IP, ipText)
         }
         startService(intent)
+        hideKeyboardAndClearInputFocus()
     }
 
     private fun sendAction(action: String) {
@@ -123,6 +132,52 @@ class MainActivity : ComponentActivity() {
             this.action = action
         }
         startService(intent)
+    }
+
+    private fun requestIgnoreBatteryOptimization() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return
+        try {
+            if (powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            } else {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+        } catch (_: Throwable) {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:$packageName")
+                )
+            )
+        }
+    }
+
+    private fun batteryOptimizationStatusText(): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            return "NOT_APPLICABLE"
+        }
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return "UNKNOWN"
+        return if (powerManager.isIgnoringBatteryOptimizations(packageName)) "IGNORED" else "OPTIMIZED"
+    }
+
+    private fun restoreManualPicoIpFromPrefs() {
+        val stored = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_MANUAL_PICO_IP, "")
+            .orEmpty()
+            .trim()
+        manualPicoIpInput.setText(stored)
+        BridgeRepository.update { it.copy(manualPicoIp = stored) }
+    }
+
+    private fun hideKeyboardAndClearInputFocus() {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        imm?.hideSoftInputFromWindow(manualPicoIpInput.windowToken, 0)
+        manualPicoIpInput.clearFocus()
+        manualPicoIpInput.isCursorVisible = false
     }
 
     private fun observeUiState() {
@@ -143,7 +198,10 @@ class MainActivity : ComponentActivity() {
                     packetCountText.text = getString(R.string.packet_count_fmt, state.packetCount)
                     statusText.text = getString(R.string.status_fmt, state.statusMessage)
                     sessionPathText.text = getString(R.string.session_path_fmt, state.sessionPath)
-                    bindModeText.text = getString(R.string.bind_mode_fmt, state.bindMode)
+                    batteryOptimizationText.text = getString(
+                        R.string.battery_optimization_fmt,
+                        batteryOptimizationStatusText()
+                    )
                     interfacesText.text = getString(
                         R.string.interfaces_fmt,
                         if (state.allIpv4Interfaces.isEmpty()) "-" else state.allIpv4Interfaces.joinToString("\n")
@@ -157,6 +215,7 @@ class MainActivity : ComponentActivity() {
                         if (state.tcpServerStarted) "true" else "false"
                     )
                     acceptCountText.text = getString(R.string.accept_count_fmt, state.acceptCount)
+                    rejectedCountText.text = getString(R.string.rejected_count_fmt, state.rejectedConnectionCount)
                     lastAcceptErrorText.text = getString(R.string.last_accept_error_fmt, state.lastAcceptError)
                     lastReadErrorText.text = getString(R.string.last_read_error_fmt, state.lastReadError)
                     udpBroadcastCountText.text = getString(R.string.udp_broadcast_count_fmt, state.udpBroadcastCount)
@@ -167,7 +226,7 @@ class MainActivity : ComponentActivity() {
                         R.string.recent_events_fmt,
                         if (state.recentEvents.isEmpty()) "-" else state.recentEvents.joinToString("\n")
                     )
-                    if (manualPicoIpInput.text.isNullOrBlank() || manualPicoIpInput.text.toString() != state.manualPicoIp) {
+                    if (!manualPicoIpInput.isFocused && manualPicoIpInput.text.toString() != state.manualPicoIp) {
                         manualPicoIpInput.setText(state.manualPicoIp)
                     }
                 }
@@ -181,5 +240,10 @@ class MainActivity : ComponentActivity() {
             return
         }
         requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+    }
+
+    companion object {
+        private const val PREFS_NAME = "xrt_bridge_prefs"
+        private const val KEY_MANUAL_PICO_IP = "manual_pico_ip"
     }
 }

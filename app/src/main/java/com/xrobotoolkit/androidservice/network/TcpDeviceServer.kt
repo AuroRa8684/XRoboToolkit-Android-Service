@@ -17,9 +17,12 @@ import java.util.Collections
 class TcpDeviceServer(
     private val bindAddress: InetAddress,
     private val tcpPort: Int = 63901,
+    private val singleClientOnly: Boolean = true,
+    private val allowClient: (String, Int) -> String?,
     private val onPacket: (String, Int, XrtPacket) -> Unit,
     private val onClientConnected: (String, Int) -> Unit,
     private val onClientDisconnected: (String, Int) -> Unit,
+    private val onClientRejected: (String, Int, String) -> Unit,
     private val onServerStarted: (String, String, Int) -> Unit,
     private val onAccept: (String, Int, Long) -> Unit,
     private val onAcceptError: (String) -> Unit,
@@ -62,6 +65,22 @@ class TcpDeviceServer(
                     onAcceptError(msg)
                     continue
                 } ?: continue
+                val remoteIp = clientSocket.inetAddress?.hostAddress ?: "-"
+                val remotePort = clientSocket.port
+                val rejectReason = when {
+                    singleClientOnly && sessions.isNotEmpty() -> "another client session is active"
+                    else -> allowClient(remoteIp, remotePort)
+                }
+                if (rejectReason != null) {
+                    val msg = "TCP client rejected $remoteIp:$remotePort reason=$rejectReason"
+                    Log.w(TAG, msg)
+                    onClientRejected(remoteIp, remotePort, rejectReason)
+                    try {
+                        clientSocket.close()
+                    } catch (_: IOException) {
+                    }
+                    continue
+                }
                 val holder = arrayOfNulls<TcpClientSession>(1)
                 val session = TcpClientSession(
                     socket = clientSocket,
@@ -77,10 +96,9 @@ class TcpDeviceServer(
                 holder[0] = session
                 sessions.add(session)
                 acceptCount += 1L
-                val remoteIp = clientSocket.inetAddress?.hostAddress ?: "-"
-                onAccept(remoteIp, clientSocket.port, acceptCount)
-                onClientConnected(remoteIp, clientSocket.port)
-                Log.i(TAG, "TCP accept #$acceptCount from $remoteIp:${clientSocket.port}")
+                onAccept(remoteIp, remotePort, acceptCount)
+                onClientConnected(remoteIp, remotePort)
+                Log.i(TAG, "TCP accept #$acceptCount from $remoteIp:$remotePort")
                 session.start(scope)
             }
             Log.i(TAG, "TCP accept loop exited")

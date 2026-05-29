@@ -10,8 +10,7 @@ data class BridgeUiState(
     val packetCount: Long = 0L,
     val sessionPath: String = "-",
     val statusMessage: String = "idle",
-    val bindMode: String = "ANY_IPV4",
-    val manualPicoIp: String = "192.168.123.22",
+    val manualPicoIp: String = "",
     val allIpv4Interfaces: List<String> = emptyList(),
     val serviceIp: String = "-",
     val tcpBindRequested: String = "-",
@@ -25,5 +24,6 @@ data class BridgeUiState(
     val loopbackSelfTest: String = "-",
     val wlanIpSelfTest: String = "-",
     val selfTestAcceptObserved: String = "-",
+    val rejectedConnectionCount: Long = 0L,
     val recentEvents: List<String> = emptyList()
 )

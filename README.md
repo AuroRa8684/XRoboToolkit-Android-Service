@@ -22,16 +22,24 @@ https://github.com/XR-Robotics/XRoboToolkit-PC-Service
 - Sends UDP discovery broadcast on port `29888`.
 - Listens TCP on port `63901`.
 - Accepts PICO connection and parses XRoboToolkit control packets.
-- Shows runtime diagnostics in app UI (IP, bind mode, accept count, errors, recent events).
-- Writes raw/events logs to local storage.
+- Shows runtime diagnostics in app UI (IP, accept/reject count, errors, recent events).
+- Supports manual PICO IP target for faster and more stable pairing.
+- Persists manual IP across app restarts.
+- Keeps only essential runtime logs (reduced storage usage).
 
 ## Quick Start
 
 1. Download and install `XRoboToolkitAndroidService.apk`.
-2. Open the app and tap `Start Service`.
-3. Keep `Bind mode` as `ANY_IPV4`.
-4. In PICO XRobotToolKit, connect to your phone IP (same LAN).
-5. Verify app UI updates: PICO IP, SN, heartbeat, packet count.
+2. Open the app and set `Manual PICO target` (optional but recommended), then tap `Apply IP`.
+3. Tap `Allow Background Exemption` and set battery/background policy to **Unrestricted** for this app.
+4. Tap `Start Service`, wait until UI shows TCP is ready.
+5. In PICO XRobotToolKit, connect to your phone IP (same LAN).
+6. Verify app UI updates: PICO IP, SN, heartbeat, packet count.
+
+### Important Android Background Setting
+
+- On many phones, if battery/background policy is not set to **Unrestricted**, connection may drop after screen lock.
+- Keep this app allowed for background activity and disable aggressive battery optimization for it.
 
 ## App Screenshot
 
@@ -92,10 +100,16 @@ https://github.com/XR-Robotics/XRoboToolkit-PC-Service
 ### 使用步骤
 
 1. 安装 `XRoboToolkitAndroidService.apk`。  
-2. 打开 App，点击 `Start Service`。  
-3. 保持 `Bind mode = ANY_IPV4`。  
-4. 在 PICO 的 XRobotToolKit 中输入手机 IP 并连接。  
-5. 查看 UI 中的 `PICO IP / SN / Heartbeat / Packet count` 是否更新。  
+2. 打开 App，先填写 `Manual PICO target`（建议）并点击 `Apply IP`。  
+3. 点击 `Allow Background Exemption`，在系统设置中将该应用后台限制改为 **无限制**。  
+4. 回到 App，点击 `Start Service`，等待 UI 显示 TCP 就绪。  
+5. 在 PICO 的 XRobotToolKit 中输入手机 IP 并连接。  
+6. 查看 UI 中的 `PICO IP / SN / Heartbeat / Packet count` 是否更新。  
+
+### 重要提醒（后台不断连）
+
+- 很多机型如果后台策略不是“无限制”，锁屏后会被系统省电策略影响导致断连。  
+- 请务必给该应用开启后台运行权限，并关闭激进电池优化。  
 
 ### 发布流程（维护者）
 

@@ -97,6 +97,20 @@
             android:text="@string/session_path_fmt" />
 
         <TextView
+            android:id="@+id/batteryOptimizationText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/battery_optimization_fmt" />
+
+        <Button
+            android:id="@+id/batteryOptimizationButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/disable_battery_optimization" />
+
+        <TextView
             android:id="@+id/manualPicoTitleText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -127,39 +141,10 @@
                 android:text="@string/apply_manual_pico_ip" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/bindModeText"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:text="@string/bind_mode_fmt" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/useAnyIpv4Button"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/use_any_ipv4" />
-
-            <Button
-                android:id="@+id/useSelectedIpButton"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:layout_weight="1"
-                android:text="@string/use_selected_ip" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
             android:orientation="horizontal">
 
             <Button
@@ -256,6 +241,13 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:text="@string/accept_count_fmt" />
+
+        <TextView
+            android:id="@+id/rejectedCountText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/rejected_count_fmt" />
 
         <TextView
             android:id="@+id/lastAcceptErrorText"

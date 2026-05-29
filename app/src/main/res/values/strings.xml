@@ -11,12 +11,11 @@
     <string name="packet_count_fmt">Packet count: %1$d</string>
     <string name="status_fmt">Status: %1$s</string>
     <string name="session_path_fmt">Session path: %1$s</string>
+    <string name="battery_optimization_fmt">Battery optimization: %1$s</string>
+    <string name="disable_battery_optimization">Allow Background Exemption</string>
     <string name="manual_pico_title">Manual PICO target</string>
     <string name="manual_pico_hint">Manual PICO IP</string>
     <string name="apply_manual_pico_ip">Apply IP</string>
-    <string name="bind_mode_fmt">Bind mode: %1$s</string>
-    <string name="use_any_ipv4">Use ANY_IPV4</string>
-    <string name="use_selected_ip">Use SELECTED_IP</string>
     <string name="run_self_test">Run TCP Self-Test</string>
     <string name="discovery_now">Broadcast Now</string>
     <string name="send_udp_probe">Send UDP Probe</string>
@@ -29,6 +28,7 @@
     <string name="server_socket_local_fmt">ServerSocket local addr: %1$s</string>
     <string name="tcp_started_fmt">TCP 63901 started: %1$s</string>
     <string name="accept_count_fmt">Accept count: %1$d</string>
+    <string name="rejected_count_fmt">Rejected connections: %1$d</string>
     <string name="last_accept_error_fmt">Last accept error: %1$s</string>
     <string name="last_read_error_fmt">Last read error: %1$s</string>
     <string name="udp_broadcast_count_fmt">UDP broadcast count: %1$d</string>

@@ -2,7 +2,6 @@ package com.xrobotoolkit.androidservice.core
 
 import android.content.Context
 import android.util.Log
-import com.xrobotoolkit.androidservice.network.BindMode
 import com.xrobotoolkit.androidservice.network.DiscoveryBroadcaster
 import com.xrobotoolkit.androidservice.network.NetworkInterfaceSelector
 import com.xrobotoolkit.androidservice.network.SelectedInterface
@@ -41,7 +40,8 @@ class BridgeSupervisor(
     private var tcpServer: TcpDeviceServer? = null
     private var logger: PacketLogger? = null
     private var heartbeatJob: Job? = null
-    private var autoSelfTestJob: Job? = null
+    @Volatile
+    private var localIpv4Set: Set<String> = emptySet()
 
     private var packetCount: Long = 0L
     private var acceptCount: Long = 0L
@@ -50,8 +50,8 @@ class BridgeSupervisor(
     private var currentUid: String = "-"
     private var lastHeartbeatMs: Long = 0L
     private var udpBroadcastCount: Long = 0L
-    private var bindMode: BindMode = BindMode.ANY_IPV4
-    private var manualPicoIp: String = "192.168.123.22"
+    private var rejectedConnectionCount: Long = 0L
+    private var manualPicoIp: String = ""
 
     fun start() {
         if (scope != null) return
@@ -63,7 +63,6 @@ class BridgeSupervisor(
         BridgeRepository.update {
             it.copy(
                 serviceRunning = true,
-                bindMode = bindMode.name,
                 manualPicoIp = manualPicoIp,
                 sessionPath = logger?.sessionPath() ?: "-",
                 statusMessage = "Bridge starting"
@@ -89,19 +88,14 @@ class BridgeSupervisor(
         }
     }
 
-    fun setBindMode(newMode: BindMode) {
-        bindMode = newMode
-        BridgeRepository.update { it.copy(bindMode = newMode.name) }
-        logEvent("Bind mode switched to ${newMode.name}")
-        if (scope != null) {
-            restartNetworkComponents("Bind mode changed to ${newMode.name}")
-        }
-    }
-
     fun setManualPicoIp(ip: String) {
-        manualPicoIp = ip.trim().ifEmpty { manualPicoIp }
+        manualPicoIp = ip.trim()
         BridgeRepository.update { it.copy(manualPicoIp = manualPicoIp) }
-        logEvent("Manual PICO IP set to $manualPicoIp")
+        if (manualPicoIp.isBlank()) {
+            logEvent("Manual PICO target cleared")
+        } else {
+            logEvent("Manual PICO IP set to $manualPicoIp")
+        }
     }
 
     fun triggerDiscoveryNow() {
@@ -166,6 +160,7 @@ class BridgeSupervisor(
         val interfaceInfos = networkSelector.listAllIpv4Interfaces()
         val interfaceLines = networkSelector.formatForDisplay(interfaceInfos)
         val chosen = networkSelector.selectPreferredInterface("192.168.14.")
+        localIpv4Set = interfaceInfos.map { it.address.hostAddress }.toSet()
         selected = chosen
 
         BridgeRepository.update {
@@ -190,14 +185,11 @@ class BridgeSupervisor(
             return
         }
 
-        val requestedBindAddress = when (bindMode) {
-            BindMode.SELECTED_IP -> chosen.localAddress
-            BindMode.ANY_IPV4 -> InetAddress.getByName("0.0.0.0")
-        }
+        val requestedBindAddress = InetAddress.getByName("0.0.0.0")
 
         logEvent(
             "Network start: if=${chosen.interfaceName} serviceIp=${chosen.localAddress.hostAddress} " +
-                "bcast=${chosen.broadcastAddress.hostAddress} bindMode=${bindMode.name} requestedBind=${requestedBindAddress.hostAddress}"
+                "bcast=${chosen.broadcastAddress.hostAddress} bindMode=ANY_IPV4 requestedBind=${requestedBindAddress.hostAddress}"
         )
 
         BridgeRepository.update {
@@ -211,6 +203,78 @@ class BridgeSupervisor(
                 statusMessage = "Bridge started on ${chosen.interfaceName} ${chosen.localAddress.hostAddress}"
             )
         }
+
+        tcpServer = TcpDeviceServer(
+            bindAddress = requestedBindAddress,
+            tcpPort = 63901,
+            singleClientOnly = true,
+            allowClient = { ip, port -> rejectClientReason(ip, port) },
+            onPacket = ::onPacketReceived,
+            onClientConnected = { ip, port ->
+                val localPeer = isLocalOrSelfConnection(ip)
+                if (!localPeer) {
+                    synchronized(stateLock) { currentPicoIp = ip }
+                }
+                BridgeRepository.update { state ->
+                    state.copy(
+                        picoIp = if (localPeer) state.picoIp else ip,
+                        statusMessage = if (localPeer) {
+                            "Local test connected from $ip:$port"
+                        } else {
+                            "PICO connected from $ip:$port"
+                        }
+                    )
+                }
+                logEvent(
+                    if (localPeer) {
+                        "TCP local/self client connected from $ip:$port"
+                    } else {
+                        "TCP client connected from $ip:$port"
+                    }
+                )
+            },
+            onClientDisconnected = { ip, port ->
+                BridgeRepository.update { state ->
+                    state.copy(statusMessage = "PICO disconnected from $ip:$port")
+                }
+                logEvent("TCP client disconnected from $ip:$port")
+            },
+            onClientRejected = { ip, port, reason ->
+                synchronized(stateLock) { rejectedConnectionCount += 1L }
+                BridgeRepository.update {
+                    it.copy(
+                        rejectedConnectionCount = rejectedConnectionCount,
+                        statusMessage = "Rejected client $ip:$port ($reason)"
+                    )
+                }
+                logEvent("TCP client rejected from $ip:$port reason=$reason")
+            },
+            onServerStarted = { requested, actual, port ->
+                BridgeRepository.update { state ->
+                    state.copy(
+                        tcpServerStarted = true,
+                        tcpBindRequested = "$requested:$port",
+                        serverSocketLocalAddress = actual,
+                        statusMessage = "TCP listening at $actual (ready for PICO connect)"
+                    )
+                }
+                logEvent("TCP server started bindMode=ANY_IPV4 requested=$requested:$port actual=$actual")
+                runStartupWarmup(runningScope)
+            },
+            onAccept = { ip, port, count ->
+                synchronized(stateLock) { acceptCount = count }
+                BridgeRepository.update { it.copy(acceptCount = count) }
+                logEvent("TCP accept #$count from $ip:$port")
+            },
+            onAcceptError = { error ->
+                BridgeRepository.update { it.copy(lastAcceptError = error, statusMessage = error) }
+                logEvent(error)
+            },
+            onReadError = { ip, port, error ->
+                BridgeRepository.update { it.copy(lastReadError = "$ip:$port $error", statusMessage = "Read error from $ip:$port") }
+                logEvent("TCP read error from $ip:$port $error")
+            }
+        ).also { it.start(runningScope) }
 
         broadcaster = DiscoveryBroadcaster(
             selectedInterface = chosen,
@@ -229,52 +293,6 @@ class BridgeSupervisor(
             }
         ).also { it.start(runningScope) }
 
-        tcpServer = TcpDeviceServer(
-            bindAddress = requestedBindAddress,
-            tcpPort = 63901,
-            onPacket = ::onPacketReceived,
-            onClientConnected = { ip, port ->
-                synchronized(stateLock) { currentPicoIp = ip }
-                BridgeRepository.update { state ->
-                    state.copy(
-                        picoIp = ip,
-                        statusMessage = "PICO connected from $ip:$port"
-                    )
-                }
-                logEvent("TCP client connected from $ip:$port")
-            },
-            onClientDisconnected = { ip, port ->
-                BridgeRepository.update { state ->
-                    state.copy(statusMessage = "PICO disconnected from $ip:$port")
-                }
-                logEvent("TCP client disconnected from $ip:$port")
-            },
-            onServerStarted = { requested, actual, port ->
-                BridgeRepository.update { state ->
-                    state.copy(
-                        tcpServerStarted = true,
-                        tcpBindRequested = "$requested:$port",
-                        serverSocketLocalAddress = actual,
-                        statusMessage = "TCP listening at $actual"
-                    )
-                }
-                logEvent("TCP server started bindMode=${bindMode.name} requested=$requested:$port actual=$actual")
-            },
-            onAccept = { ip, port, count ->
-                synchronized(stateLock) { acceptCount = count }
-                BridgeRepository.update { it.copy(acceptCount = count) }
-                logEvent("TCP accept #$count from $ip:$port")
-            },
-            onAcceptError = { error ->
-                BridgeRepository.update { it.copy(lastAcceptError = error, statusMessage = error) }
-                logEvent(error)
-            },
-            onReadError = { ip, port, error ->
-                BridgeRepository.update { it.copy(lastReadError = "$ip:$port $error", statusMessage = "Read error from $ip:$port") }
-                logEvent("TCP read error from $ip:$port $error")
-            }
-        ).also { it.start(runningScope) }
-
         heartbeatJob = runningScope.launch(Dispatchers.IO) {
             while (isActive) {
                 val stale = synchronized(stateLock) {
@@ -288,17 +306,9 @@ class BridgeSupervisor(
                 delay(1000L)
             }
         }
-
-        autoSelfTestJob?.cancel()
-        autoSelfTestJob = runningScope.launch(Dispatchers.IO) {
-            delay(1200L)
-            runTcpSelfTests()
-        }
     }
 
     private fun stopNetworkComponents() {
-        autoSelfTestJob?.cancel()
-        autoSelfTestJob = null
         heartbeatJob?.cancel()
         heartbeatJob = null
         broadcaster?.stop()
@@ -307,19 +317,17 @@ class BridgeSupervisor(
         tcpServer = null
     }
 
-    private fun restartNetworkComponents(reason: String) {
-        logEvent(reason)
-        stopNetworkComponents()
-        resetRuntimeCounters()
-        startNetworkComponents()
-    }
-
     private fun sendUdpToManualPico(name: String, buildPayload: () -> ByteArray) {
         val chosen = selected ?: return
         val runningScope = scope ?: return
         runningScope.launch(Dispatchers.IO) {
             val destinationIp = manualPicoIp.trim()
-            if (destinationIp.isEmpty()) return@launch
+            if (destinationIp.isEmpty()) {
+                val msg = "$name skipped: manual PICO target is empty"
+                BridgeRepository.update { it.copy(statusMessage = msg) }
+                logEvent(msg)
+                return@launch
+            }
             val payload = buildPayload()
             try {
                 DatagramSocket(null).use { socket ->
@@ -340,6 +348,22 @@ class BridgeSupervisor(
         }
     }
 
+    private fun runStartupWarmup(runningScope: CoroutineScope) {
+        runningScope.launch(Dispatchers.IO) {
+            delay(150L)
+            // Start with a normal broadcast discovery, then send directed warmup probes.
+            broadcaster?.sendDiscoveryNow()
+            val target = manualPicoIp.trim()
+            if (target.isEmpty()) return@launch
+            repeat(3) { idx ->
+                sendUdpPrimingToManualPico()
+                sendUdpProbeToManualPico()
+                logEvent("Startup warmup #${idx + 1} sent to manual target $target")
+                delay(220L)
+            }
+        }
+    }
+
     private fun runSingleTcpSelfTest(targetIp: String): Boolean {
         return try {
             Socket().use { socket ->
@@ -356,10 +380,25 @@ class BridgeSupervisor(
         }
     }
 
+    private fun rejectClientReason(remoteIp: String, remotePort: Int): String? {
+        if (isLocalOrSelfConnection(remoteIp)) {
+            return null
+        }
+        val target = manualPicoIp.trim()
+        if (target.isNotEmpty() && target != remoteIp) {
+            return "manual target mismatch (target=$target, remote=$remoteIp:$remotePort)"
+        }
+        return null
+    }
+
     private fun onPacketReceived(remoteIp: String, remotePort: Int, packet: XrtPacket) {
-        synchronized(stateLock) {
+        val localPeer = isLocalOrSelfConnection(remoteIp)
+        val displayPicoIp = synchronized(stateLock) {
             packetCount += 1L
-            currentPicoIp = remoteIp
+            if (!localPeer) {
+                currentPicoIp = remoteIp
+            }
+            currentPicoIp
         }
 
         if (packet.head == XrtPacketCodec.HEAD_CLIENT) {
@@ -368,7 +407,7 @@ class BridgeSupervisor(
                     synchronized(stateLock) { lastHeartbeatMs = System.currentTimeMillis() }
                     BridgeRepository.update {
                         it.copy(
-                            picoIp = remoteIp,
+                            picoIp = displayPicoIp,
                             lastHeartbeatMs = lastHeartbeatMs,
                             packetCount = packetCount,
                             statusMessage = "Heartbeat received cmd=0x23"
@@ -392,7 +431,7 @@ class BridgeSupervisor(
                     }
                     BridgeRepository.update {
                         it.copy(
-                            picoIp = remoteIp,
+                            picoIp = displayPicoIp,
                             sn = currentSn,
                             uid = currentUid,
                             packetCount = packetCount,
@@ -405,14 +444,11 @@ class BridgeSupervisor(
                 else -> {
                     BridgeRepository.update {
                         it.copy(
-                            picoIp = remoteIp,
+                            picoIp = displayPicoIp,
                             sn = currentSn,
                             packetCount = packetCount,
                             statusMessage = "Packet cmd=0x${packet.cmd.toString(16)}"
                         )
-                    }
-                    if (packet.cmd == XrtPacketCodec.CMD_STATE_JSON) {
-                        logEvent("Tracking/state packet cmd=0x6d from $remoteIp:$remotePort length=${packet.length}")
                     }
                 }
             }
@@ -425,6 +461,17 @@ class BridgeSupervisor(
         logger?.logPacket(packet, remoteIp, remotePort, currentSn, currentUid)
     }
 
+    private fun isLocalOrSelfConnection(ip: String): Boolean {
+        if (ip == "127.0.0.1" || ip == "0.0.0.0" || ip == "::1") {
+            return true
+        }
+        if (localIpv4Set.contains(ip)) {
+            return true
+        }
+        val selectedIp = selected?.localAddress?.hostAddress
+        return selectedIp != null && selectedIp == ip
+    }
+
     private fun resetRuntimeCounters() {
         synchronized(stateLock) {
             packetCount = 0L
@@ -434,6 +481,7 @@ class BridgeSupervisor(
             currentUid = "-"
             lastHeartbeatMs = 0L
             udpBroadcastCount = 0L
+            rejectedConnectionCount = 0L
         }
         recentEvents.clear()
         BridgeRepository.update {
@@ -444,6 +492,7 @@ class BridgeSupervisor(
                 packetCount = 0L,
                 acceptCount = 0L,
                 udpBroadcastCount = 0L,
+                rejectedConnectionCount = 0L,
                 lastHeartbeatMs = 0L,
                 recentEvents = emptyList()
             )

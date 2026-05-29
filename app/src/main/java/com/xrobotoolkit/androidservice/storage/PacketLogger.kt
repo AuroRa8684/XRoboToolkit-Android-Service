@@ -14,22 +14,29 @@ class PacketLogger(
     context: Context,
     sessionName: String
 ) {
+    private val keepRawPacketLog = false
+    private val maxSessionRetention = 8
     private val lock = Any()
-    private val sessionDir = File(
-        context.getExternalFilesDir(null),
-        "xrt_logs/session_$sessionName"
-    )
+    private val logsRootDir = File(context.getExternalFilesDir(null), "xrt_logs")
+    private val sessionDir = File(logsRootDir, "session_$sessionName")
     private val rawDir = File(sessionDir, "raw")
     private val eventsDir = File(sessionDir, "events")
     private val rawOutputFile = File(rawDir, "raw_packets.jsonl")
     private val eventsOutputFile = File(eventsDir, "network_events.log")
-    private val rawWriter: BufferedWriter
+    private var rawWriter: BufferedWriter? = null
     private val eventWriter: BufferedWriter
 
     init {
-        rawDir.mkdirs()
+        logsRootDir.mkdirs()
+        if (!keepRawPacketLog) {
+            cleanupLegacyRawLogs()
+        }
+        cleanupOldSessions()
+        if (keepRawPacketLog) {
+            rawDir.mkdirs()
+            rawWriter = BufferedWriter(FileWriter(rawOutputFile, true))
+        }
         eventsDir.mkdirs()
-        rawWriter = BufferedWriter(FileWriter(rawOutputFile, true))
         eventWriter = BufferedWriter(FileWriter(eventsOutputFile, true))
     }
 
@@ -42,6 +49,7 @@ class PacketLogger(
         sn: String?,
         uid: String?
     ) {
+        if (!keepRawPacketLog) return
         val json = JSONObject()
             .put("received_at_ms", System.currentTimeMillis())
             .put("remote_ip", remoteIp)
@@ -62,9 +70,9 @@ class PacketLogger(
         }
 
         synchronized(lock) {
-            rawWriter.append(json.toString())
-            rawWriter.newLine()
-            rawWriter.flush()
+            rawWriter?.append(json.toString())
+            rawWriter?.newLine()
+            rawWriter?.flush()
         }
     }
 
@@ -79,10 +87,34 @@ class PacketLogger(
 
     fun close() {
         synchronized(lock) {
-            rawWriter.flush()
-            rawWriter.close()
+            rawWriter?.flush()
+            rawWriter?.close()
             eventWriter.flush()
             eventWriter.close()
         }
+    }
+
+    private fun cleanupLegacyRawLogs() {
+        val sessions = logsRootDir.listFiles().orEmpty().filter { it.isDirectory }
+        sessions.forEach { session ->
+            File(session, "raw_packets.jsonl").delete()
+            File(session, "raw/raw_packets.jsonl").delete()
+            deleteRecursively(File(session, "raw"))
+        }
+    }
+
+    private fun cleanupOldSessions() {
+        val sessions = logsRootDir.listFiles().orEmpty()
+            .filter { it.isDirectory && it.name.startsWith("session_") }
+            .sortedByDescending { it.lastModified() }
+        sessions.drop(maxSessionRetention).forEach { deleteRecursively(it) }
+    }
+
+    private fun deleteRecursively(file: File) {
+        if (!file.exists()) return
+        if (file.isDirectory) {
+            file.listFiles()?.forEach { child -> deleteRecursively(child) }
+        }
+        file.delete()
     }
 }

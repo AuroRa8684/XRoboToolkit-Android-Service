@@ -27,6 +27,8 @@ class TcpClientSession(
             val remoteIp = socket.inetAddress?.hostAddress ?: "-"
             val remotePort = socket.port
             Log.i(TAG, "TCP session started from $remoteIp:$remotePort")
+            socket.keepAlive = true
+            socket.tcpNoDelay = true
             socket.soTimeout = 2000
             val input = socket.getInputStream()
             val buffer = ByteArray(8192)
